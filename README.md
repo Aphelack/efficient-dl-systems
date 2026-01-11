@@ -30,7 +30,7 @@ __This branch corresponds to the ongoing 2025 course. If you want to see full ma
 - [__Week 9:__](./week09_inference_algorithms) __Efficient model inference__
   - Lecture: Speculative decoding, architecture optimizations, quantization, knowledge distillation
   - Seminar: Introduction to speculative decoding. Matrix multiplication in Triton for different scenarios.
-- __Week 10:__ Guest lecture
+- [__Week 10:__](./week10_invited) __DeepSeek v3 Pretraining__ by Mikhail Khrushchev, YandexGPT pretraining lead
 
 ## Grading
 There will be several home assignments (spread over multiple weeks) on the following topics:
