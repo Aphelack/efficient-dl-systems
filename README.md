@@ -4,8 +4,8 @@ This repository contains materials for the Efficient Deep Learning Systems cours
 __This branch corresponds to the 2026 iteration of the course. If you want to see full materials of past years, see the ["Past versions"](#past-versions) section.__
 
 # Syllabus
-- __Week 1:__ __Introduction__
-  - Lecture: Course overview and logistics. Core concepts of the GPU architecture and CUDA API.
+- [__Week 1:__](./week01_intro) __Introduction__
+  - Lecture: Course overview and logistics. Core concepts of the GPU architecture and the CUDA API.
   - Seminar: CUDA operations in PyTorch. Introduction to benchmarking.
 - __Week 2:__ General training optimizations, profiling deep learning code
 - __Week 3:__ Data-parallel training and All-Reduce
