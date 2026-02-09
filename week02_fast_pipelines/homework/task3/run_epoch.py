@@ -26,7 +26,7 @@ def get_vit_model() -> torch.nn.Module:
 
 
 def get_loaders() -> torch.utils.data.DataLoader:
-    dataset.download_extract_dataset()
+    # dataset.download_extract_dataset()
     train_transforms = dataset.get_train_transforms()
     val_transforms = dataset.get_val_transforms()
 
@@ -44,8 +44,8 @@ def get_loaders() -> torch.utils.data.DataLoader:
     print(f"Train Data: {len(train_data)}")
     print(f"Val Data: {len(val_data)}")
 
-    train_loader = DataLoader(dataset=train_data, batch_size=Settings.batch_size, shuffle=True)
-    val_loader = DataLoader(dataset=val_data, batch_size=Settings.batch_size, shuffle=False)
+    train_loader = DataLoader(dataset=train_data, batch_size=Settings.batch_size, shuffle=True, num_workers=32, pin_memory=True)
+    val_loader = DataLoader(dataset=val_data, batch_size=Settings.batch_size, shuffle=False, num_workers=32, pin_memory=True)
 
     return train_loader, val_loader
 

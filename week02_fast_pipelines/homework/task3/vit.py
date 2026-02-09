@@ -14,7 +14,7 @@ def pair(t):
 
 
 class FeedForward(nn.Module):
-    def __init__(self, dim, hidden_dim=255, dropout=0.0):
+    def __init__(self, dim, hidden_dim=256, dropout=0.0):
         super().__init__()
         self.net = nn.Sequential(
             nn.LayerNorm(dim),
@@ -32,35 +32,37 @@ class FeedForward(nn.Module):
 class Attention(nn.Module):
     def __init__(self, dim, heads=8, dim_head=64, dropout=0.0):
         super().__init__()
-        inner_dim = dim_head * heads
-        project_out = not (heads == 1 and dim_head == dim)
-
+        inner_dim = heads * dim_head
         self.heads = heads
-        self.scale = dim_head ** (-0.5)
+        self.dim_head = dim_head
 
-        self.attend = nn.Softmax(dim=-1)
-        self.dropout = nn.Dropout(dropout)
         self.norm = nn.LayerNorm(dim)
-        self.queries = nn.Linear(dim, inner_dim, bias=False)
-        self.keys = nn.Linear(dim, inner_dim, bias=False)
-        self.values = nn.Linear(dim, inner_dim, bias=False)
+        self.to_qkv = nn.Linear(dim, inner_dim * 3, bias=False)
+        self.dropout = dropout
 
-        self.to_out = nn.Sequential(nn.Linear(inner_dim, dim), nn.Dropout(dropout)) if project_out else nn.Identity()
+        self.to_out = nn.Sequential(
+            nn.Linear(inner_dim, dim),
+            nn.Dropout(dropout)
+        )
 
     def forward(self, x):
-        q = self.queries(x)
-        k = self.keys(x)
-        v = self.values(x)
+        b, n, _ = x.shape
+        x = self.norm(x)
 
-        dots = torch.matmul(q, k.transpose(-1, -2)) * self.scale
+        qkv = self.to_qkv(x).reshape(b, n, 3, self.heads, self.dim_head)
+        q, k, v = qkv.unbind(dim=2)
 
-        attn = self.attend(dots)
-        attn = self.dropout(attn)
+        q = q.transpose(1, 2)
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
 
-        out = torch.matmul(attn, v)
+        out = torch.nn.functional.scaled_dot_product_attention(
+            q, k, v,
+            dropout_p=self.dropout if self.training else 0.0
+        )
 
+        out = out.transpose(1, 2).reshape(b, n, self.heads * self.dim_head)
         return self.to_out(out)
-
 
 class Transformer(nn.Module):
     def __init__(self, dim, depth, heads, dim_head, dropout=0.0):
@@ -92,7 +94,7 @@ class ViT(nn.Module):
         num_classes,
         depth,
         heads,
-        dim=255,
+        dim=256,
         pool="cls",
         channels=3,
         dim_head=64,
@@ -112,8 +114,14 @@ class ViT(nn.Module):
         assert pool in {"cls", "mean"}, "pool type must be either cls (cls token) or mean (mean pooling)"
 
         self.to_patch_embedding = nn.Sequential(
-            Rearrange("b c (h p1) (w p2) -> b (h w) (p1 p2 c)", p1=patch_height, p2=patch_width),
-            nn.Linear(patch_dim, dim),
+            nn.Conv2d(
+                in_channels=channels,
+                out_channels=dim,
+                kernel_size=(patch_height, patch_width),
+                stride=(patch_height, patch_width),
+                bias=True,
+            ),
+            Rearrange("b d h w -> b (h w) d"),
         )
 
         self.pos_embedding = nn.Parameter(torch.randn(1, num_patches + 1, dim))
