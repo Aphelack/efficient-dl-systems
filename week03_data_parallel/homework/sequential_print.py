@@ -1,6 +1,7 @@
 import os
 
 import torch.distributed as dist
+import torch
 
 
 def run_sequential(rank, size, num_iter=10):
@@ -24,8 +25,36 @@ def run_sequential(rank, size, num_iter=10):
     Process 0
     ```
     """
+    tensor = torch.empty((1,))
 
-    pass
+    if rank == 0:
+        print('```')
+
+    for _ in range(num_iter):
+        if rank == 0:
+            if num_iter != 0:
+                print('---')
+            print(f'Process {rank}')
+            dist.send(tensor, 1)
+            dist.recv(tensor, 1)
+            print(f'Process {rank}')
+        elif rank == size - 1: 
+            dist.recv(tensor, rank - 1)
+            print(f'Process {rank}')
+            print(f'Process {rank}')
+            dist.send(tensor, size - 2)
+        else:
+            dist.recv(tensor, rank - 1)
+            print(f'Process {rank}')
+            dist.send(tensor, rank + 1)
+            dist.recv(tensor, rank + 1)
+            print(f'Process {rank}')
+            dist.send(tensor, rank - 1)
+
+    if rank == 0:
+        print('```')
+
+    
 
 
 if __name__ == "__main__":
