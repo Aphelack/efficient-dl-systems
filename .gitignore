@@ -130,3 +130,7 @@ dmypy.json
 
 .idea
 .DS_Store
+
+**/__MACOSX/*
+
+week02_fast_pipelines/homework/task3/clothing-dataset/*

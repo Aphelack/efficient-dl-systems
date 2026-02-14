@@ -17,7 +17,7 @@ def seed_everything(seed: int = 595959) -> None:
 
 
 def get_device() -> torch.device:
-    return torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+    return torch.device("cuda:4") if torch.cuda.is_available() else torch.device("cpu")
 
 
 class Settings:
@@ -31,8 +31,8 @@ class Settings:
 
 
 class Clothes:
-    directory = "data"
-    train_val_img_dir = "train"
+    directory = "clothing-dataset"
+    train_val_img_dir = "images"
     csv_name = "images.csv"
     archive_name = "images_original"
 
