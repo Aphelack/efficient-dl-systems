@@ -4,7 +4,7 @@ import torch.distributed as dist
 import torch
 
 
-def run_sequential(rank, size, num_iter=10):
+def run_sequential(rank, size, num_iter=5):
     """
     Prints the process rank sequentially in two orders over `num_iter` iterations,
     separating the output for each iteration by `---`.
@@ -30,9 +30,9 @@ def run_sequential(rank, size, num_iter=10):
     if rank == 0:
         print('```')
 
-    for _ in range(num_iter):
+    for iter in range(num_iter):
         if rank == 0:
-            if num_iter != 0:
+            if iter != 0:
                 print('---')
             print(f'Process {rank}')
             dist.send(tensor, 1)

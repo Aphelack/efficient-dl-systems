@@ -134,3 +134,4 @@ dmypy.json
 **/__MACOSX/*
 
 week02_fast_pipelines/homework/task3/clothing-dataset/*
+week03_data_parallel/homework/cifar/
