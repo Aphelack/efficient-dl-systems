@@ -13,7 +13,9 @@ __This branch corresponds to the 2026 iteration of the course. If you want to se
 - [__Week 3:__](./week03_data_parallel) __Data-parallel training and All-Reduce__
   - Lecture: Introduction to distributed training. Data-parallel training of neural networks. All-Reduce and its efficient implementations.
   - Seminar: Introduction to PyTorch Distributed. Data-parallel training primitives.
-- __Week 4:__ Methods for training large models
+- [__Week 4:__](./week04_large_models) Methods for training large models
+  - Lecture: Tensor, pipeline, sequence parallelism. Gradient checkpointing, offloading.
+  - Seminar: Gradient checkpointing and tensor parallelism in practice.
 - __Week 5:__ Sharded data-parallel training, distributed training optimizations
 - __Week 6:__ Deep learning performance from first principles
 - __Week 7:__ Basics of web service deployment
