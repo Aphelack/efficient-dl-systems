@@ -1,0 +1,20 @@
+[project]
+name = "homework"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy",
+    "pytest",
+    "torch",
+    "torchtitan",
+    "tyro",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchtitan = { git = "https://github.com/pytorch/torchtitan" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

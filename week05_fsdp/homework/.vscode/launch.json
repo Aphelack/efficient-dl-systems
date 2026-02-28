@@ -1,0 +1,29 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "train",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/opt/ydt/bin/torchrun",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0,1",
+            },
+            "args": [
+                "--standalone",
+                "--nproc-per-node", "2",
+                "--local-ranks-filter", "0",
+                "train.py",
+                "--model", "1b",
+                "--seq-len", "2048",
+                "--num-steps", "5",
+                "--fsdp", "effdl",
+                // "--fsdp", "fsdp2",
+                "--memory-snapshots-dir", "memory-snapshots/effdl"
+                // "--memory-snapshots-dir", "memory-snapshots/fsdp2"
+            ]
+        },
+    ]
+}
