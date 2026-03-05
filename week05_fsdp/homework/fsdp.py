@@ -81,6 +81,7 @@ class FSDPParam:
 
         assert param.size(shard_dim) % shard_world_size == 0
         # TODO(task1): shard the full `param` into `sharded_param`
+        sharded_param = param.data.chunk(shard_world_size, dim=shard_dim)[shard_rank]
         self.sharded_size = sharded_param.size()
         self.sharded_param = nn.Parameter(
             self.to_sharded_dtensor(sharded_param),
@@ -271,22 +272,45 @@ class FSDPModule:
             return  # no-op
         with record_function(self.with_fqn("FSDP::all_gather")):
             # TODO(task1): gather the parameters shards (cast to `param_dtype`) for each parameter
+            param_all_gather_outputs = []
+            for fsdp_param in self.fsdp_params:
+                all_gather_output = torch.empty(
+                    fsdp_param.orig_size,
+                    dtype=fsdp_param.param_dtype or fsdp_param.orig_dtype,
+                    device=fsdp_param.sharded_param.device,
+                )
+                with torch.cuda.stream(self.comm_ctx.all_gather_stream):
+                    torch.distributed.all_gather_into_tensor(
+                        all_gather_output,
+                        fsdp_param.sharded_param.data
+                    )
+                param_all_gather_outputs.append(all_gather_output)
             self._all_gather_result = AllGatherResult(
                 param_all_gather_outputs=param_all_gather_outputs,
             )
             # TODO(task2): create an event which marks the end of all-gather
             # and save it in `AllGatherResult`
+            # self._all_gather_result.all_gather_event = torch.cuda.Event()
 
     def wait_for_unshard(self):
         # TODO(task2): wait for the end of the all-gather launched by `unshard`
+        # self._all_gather_result.all_gather_event.synchronize()
         # TODO(task1): for each parameter:
         #   - allocate its unsharded paramter
         #   - copy the all-gather output into it
         #   - assign the unsharded parameter into the module (call `.to_unsharded()`)
         # then free the `all_gather_result`
         # NOTE: copy to the `.data` attribute
+        for fsdp_param, all_gather_output in zip(self.fsdp_params, self._all_gather_result.param_all_gather_outputs):
+            fsdp_param.alloc_unsharded_param()
+            fsdp_param.unsharded_param.data.copy_(all_gather_output)
+            fsdp_param.to_unsharded()
+            del all_gather_output
         self._sharded_state = ShardedState.UNSHARDED
         # TODO(task2): block all-gather stream until copy is complete,
+        # copy_event = torch.cuda.Event()
+        # copy_event.record()
+        # self.comm_ctx.all_gather_stream.wait_event(copy_event)
         # so it doesn't interfere with the next unshard
 
     def reshard(self):
@@ -294,6 +318,9 @@ class FSDPModule:
         # TODO(task1): for each parameter:
         #   - free the unsharded parameter
         #   - assign the sharded parameter into the module (call `.to_sharded()`)
+        for fsdp_param in self.fsdp_params:
+            fsdp_param.free_unsharded_param()
+            fsdp_param.to_sharded()
         self._sharded_state = ShardedState.SHARDED
 
     def record_post_forward(self) -> None:
@@ -385,6 +412,7 @@ def post_backward(module: FSDPModule):
     module._training_state = TrainingState.POST_BACKWARD
     with record_function(module.with_fqn("FSDP::post_backward_reshard")):
         # TODO(task1): reshard the module
+        module.reshard()
         # TODO(bonus2): reshard the module only if module.reshard_after_backward is True
     # TODO(bonus3): reduce the grads only if module.reduce_grads is True
     with record_function(module.with_fqn("FSDP::post_backward_reduce")):
@@ -396,9 +424,32 @@ def post_backward(module: FSDPModule):
         # TODO(task1):
         #   - cast the parameter gradients to reduce dtype
         #   - delete the unsharded parameter grad
+        for fsdp_param in module.fsdp_params:
+            if fsdp_param.unsharded_param.grad is not None:
+                if fsdp_param.reduce_dtype is not None:
+                    grad_to_reduce = fsdp_param.unsharded_param.grad.to(fsdp_param.reduce_dtype)
+                else:
+                    grad_to_reduce = fsdp_param.unsharded_param.grad
+                del fsdp_param.unsharded_param.grad
         # TODO(task3): now block current stream until reduce-scatter stream finishes the copy
         # TODO(task1): reduce-scatter the gradients and assign the reduced grad shards to `sharded_param.grad`s
         # (casting them to `orig_dtype`)
+        for fsdp_param in module.fsdp_params:
+            if fsdp_param.reduce_dtype is not None:
+                reduced_grad = torch.empty_like(fsdp_param.sharded_param.data, dtype=fsdp_param.orig_dtype)
+                with torch.cuda.stream(module.comm_ctx.reduce_scatter_stream):
+                    torch.distributed.reduce_scatter_tensor(
+                        reduced_grad,
+                        grad_to_reduce,
+                    )
+                fsdp_param.sharded_param.grad = reduced_grad
+            else:
+                # If reduce dtype is the same as param dtype, then no need to allocate new memory for reduction
+                with torch.cuda.stream(module.comm_ctx.reduce_scatter_stream):
+                    torch.distributed.reduce_scatter_tensor(
+                        fsdp_param.sharded_param.grad,
+                        grad_to_reduce,
+                    )
         # TODO(task3): create an event which marks the end of the reduce-scatter
         # and save it to `_post_reduce_event` to wait for it
         # when the whole backward finishes (in the final callback)
