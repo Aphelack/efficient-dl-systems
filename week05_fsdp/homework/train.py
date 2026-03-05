@@ -260,6 +260,7 @@ def train(
                 "wb",
             ) as output:
                 pickle.dump(torch.cuda.memory._snapshot(), output)
+                print('Saved!', snapshots_dir / f"rank{torch.distributed.get_rank()}.pickle")
     return losses, grad_norms
 
 
