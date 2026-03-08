@@ -19,8 +19,7 @@ class CrossEntropyLoss(nn.Module):
         shift_hidden_states = hidden_states[..., :-1, :].contiguous()
         shift_labels = labels[..., 1:].contiguous()
 
-        # Flatten tokens
-        shift_hidden_states = shift_hidden_states.view(-1, self.config.hidden_size)
+        shift_hidden_states = shift_hidden_states.view(-1, hidden_states.shape[-1])
         shift_labels = shift_labels.view(-1)
 
         lce = LigerFusedLinearCrossEntropyLoss(reduction="mean")

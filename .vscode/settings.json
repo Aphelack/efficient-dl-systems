@@ -1,8 +1,10 @@
 {
     "python-envs.defaultEnvManager": "ms-python.python:system",
+    "python.defaultInterpreterPath": "home/korenikil/efficient-dl-systems/week06_dl_arithmetic/homework/.venv/bin/python3.11",
     "python.testing.pytestArgs": [
         "week06_dl_arithmetic"
     ],
+    "python.terminal.useEnvFile": true,
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true
 }
