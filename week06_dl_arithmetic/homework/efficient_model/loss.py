@@ -4,7 +4,7 @@ Cross Entropy Loss for Causal LM
 
 import torch
 import torch.nn as nn
-
+from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss
 
 class CrossEntropyLoss(nn.Module):
     """Fused Linear Cross Entropy for causal LM."""
@@ -15,6 +15,14 @@ class CrossEntropyLoss(nn.Module):
         super().__init__()
         self.ignore_index = ignore_index
 
-    def forward(self,) -> torch.Tensor:
-        # TODO: Implement forward pass
-        raise NotImplementedError("TODO: Implement forward pass")
+    def forward(self, hidden_states: torch.Tensor, lm_head_weight: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        shift_hidden_states = hidden_states[..., :-1, :].contiguous()
+        shift_labels = labels[..., 1:].contiguous()
+
+        # Flatten tokens
+        shift_hidden_states = shift_hidden_states.view(-1, self.config.hidden_size)
+        shift_labels = shift_labels.view(-1)
+
+        lce = LigerFusedLinearCrossEntropyLoss(reduction="mean")
+        loss = lce(lm_head_weight, shift_hidden_states, shift_labels)
+        return loss
