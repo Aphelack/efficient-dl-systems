@@ -7,8 +7,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from config import TransformerConfig
+from flash_attn.layers.rotary import apply_rotary_emb
+from flash_attn import flash_attn_func
 
+from config import TransformerConfig
+# torch.use_deterministic_algorithms(True)
 
 class RotaryPositionalEmbedding(nn.Module):
     """
@@ -31,10 +34,9 @@ class RotaryPositionalEmbedding(nn.Module):
         """Build sin/cos cache up to seq_len."""
         positions = torch.arange(seq_len, device=self.inv_freq.device)
         freqs = torch.outer(positions, self.inv_freq)
-        emb = torch.cat([freqs, freqs], dim=-1)
 
-        self.register_buffer('cos', emb.cos().unsqueeze(0).unsqueeze(0), persistent=False)
-        self.register_buffer('sin', emb.sin().unsqueeze(0).unsqueeze(0), persistent=False)
+        self.register_buffer('cos', freqs.cos(), persistent=False)
+        self.register_buffer('sin', freqs.sin(), persistent=False)
     
     def forward(self, q: torch.Tensor, k: torch.Tensor, seq_len: int) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -51,8 +53,8 @@ class RotaryPositionalEmbedding(nn.Module):
         assert seq_len <= self.max_seq_len, \
             f"seq_len ({seq_len}) exceeds max_seq_len ({self.max_seq_len})"
         
-        cos = self.cos[:, :, :seq_len, :]
-        sin = self.sin[:, :, :seq_len, :]
+        cos = self.cos[:seq_len, :]
+        sin = self.sin[:seq_len, :]
 
         q_rotated = self._apply_rotary(q, cos, sin)
         k_rotated = self._apply_rotary(k, cos, sin)
@@ -61,10 +63,7 @@ class RotaryPositionalEmbedding(nn.Module):
     
     def _apply_rotary(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
         """Apply rotary embedding to tensor x."""
-        x1 = x[..., : x.shape[-1] // 2]
-        x2 = x[..., x.shape[-1] // 2 :]
-        rotated = torch.cat([-x2, x1], dim=-1)
-        return x * cos + rotated * sin
+        return apply_rotary_emb(x, cos, sin, max_seqlen=self.max_seq_len)
 
 
 class MultiHeadAttention(nn.Module):
@@ -80,10 +79,9 @@ class MultiHeadAttention(nn.Module):
         self.head_dim = config.hidden_dim // config.num_heads
 
         # TODO: Replace with fused QKV projection
-        self.q_proj = nn.Linear(config.hidden_dim, config.hidden_dim, bias=False)
-        self.k_proj = nn.Linear(config.hidden_dim, config.hidden_dim, bias=False)
-        self.v_proj = nn.Linear(config.hidden_dim, config.hidden_dim, bias=False)
+        self.qkv_proj = nn.Linear(config.hidden_dim, 3 * config.hidden_dim, bias=False)
         self.out_proj = nn.Linear(config.hidden_dim, config.hidden_dim, bias=False)
+
 
         self.rope = RotaryPositionalEmbedding(
             head_dim=self.head_dim,
@@ -100,35 +98,19 @@ class MultiHeadAttention(nn.Module):
     ) -> torch.Tensor:
         B, S, H = x.shape
 
-        q = self.q_proj(x)
-        k = self.k_proj(x)
-        v = self.v_proj(x)
+        qkv: torch.Tensor = self.qkv_proj(x)
 
-        q = q.view(B, S, self.num_heads, self.head_dim).transpose(1, 2)
-        k = k.view(B, S, self.num_heads, self.head_dim).transpose(1, 2)
-        v = v.view(B, S, self.num_heads, self.head_dim).transpose(1, 2)
+        q = qkv[:, :, 0:self.hidden_dim].view(B, S, self.num_heads, self.head_dim).contiguous()
+        k = qkv[:, :, self.hidden_dim:2*self.hidden_dim].view(B, S, self.num_heads, self.head_dim).contiguous()
+        v = qkv[:, :, 2*self.hidden_dim:3*self.hidden_dim].view(B, S, self.num_heads, self.head_dim).contiguous()
 
-        q, k = self.rope(q, k, S)
+        q, k = self.rope.forward(q, k, S)
+
 
         # TODO: Replace vanilla attention with Flash Attention
-        scale = 1.0 / math.sqrt(self.head_dim)
-        attn_weights = torch.matmul(q, k.transpose(-2, -1)) * scale
+        out: torch.Tensor = flash_attn_func(q, k, v, causal=True, deterministic=True, dropout_p=self.config.dropout if self.training else 0.0,)
 
-        if attention_mask is None:
-            causal_mask = torch.triu(
-                torch.ones(S, S, dtype=torch.bool, device=x.device), 
-                diagonal=1
-            )
-            attn_weights = attn_weights.masked_fill(causal_mask, float('-inf'))
-        else:
-            attn_weights = attn_weights + attention_mask
-
-        attn_weights = F.softmax(attn_weights, dim=-1)
-        attn_weights = self.dropout(attn_weights)
-
-        out = torch.matmul(attn_weights, v)
-
-        out = out.transpose(1, 2).contiguous().view(B, S, H)
+        out = out.view(B, S, H)
         out = self.out_proj(out)
 
         return out
