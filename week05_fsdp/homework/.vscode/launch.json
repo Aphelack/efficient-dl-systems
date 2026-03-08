@@ -16,13 +16,13 @@
                 "--nproc-per-node", "4",
                 "--local-ranks-filter", "0",
                 "train.py",
-                "--model", "debug",
-                "--seq-len", "2048",
+                "--model", "1b",
+                "--seq-len", "128",
                 "--num-steps", "5",
-                //"--fsdp", "effdl",
-                "--fsdp", "fsdp2",
-                //"--snapshots-dir", "memory-snapshots/effdl"
-                "--snapshots-dir", "memory-snapshots/fsdp2"
+                "--fsdp", "effdl",
+                //"--fsdp", "fsdp2",
+                "--snapshots-dir", "memory-snapshots/effdl"
+                //"--snapshots-dir", "memory-snapshots/fsdp2"
             ]
         },
     ]
