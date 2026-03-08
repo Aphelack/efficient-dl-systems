@@ -5,7 +5,7 @@ Zero-Centered RMSNorm
 import torch
 import torch.nn as nn
 
-
+@torch.compile
 def rmsnorm_forward(x, weight, eps):
     """Zero-Centered RMSNorm forward."""
     # TODO: Replace with fused implementation
@@ -19,13 +19,22 @@ def rmsnorm_forward(x, weight, eps):
     scale = 1.0 + weight.float()
     output = normalized * scale
     # TODO: Think about additional return parameters
-    return output.to(input_dtype)
+    return output.to(input_dtype), rsqrt
 
-
-def rmsnorm_backward(grad_output,):
+@torch.compile
+def rmsnorm_backward(grad_output, x, weight, rsqrt):
     """Zero-Centered RMSNorm backward."""
-    # TODO: Implement backward pass
-    raise NotImplementedError("TODO: Implement backward pass")
+    x_f32 = x.float()
+    x_hat = x_f32 * rsqrt
+    scale = 1.0 + weight.float()
+    wdy = grad_output * scale
+    c1 = (x_hat * wdy).mean(dim=-1, keepdim=True)
+    dx = (wdy - x_hat * c1) * rsqrt
+
+    reduce_dims = tuple(range(x.ndim - 1))
+    dw = (grad_output * x_hat).sum(dim=reduce_dims)
+    
+    return dx.to(x.dtype), dw.to(weight.dtype)
 
 
 class RMSNormFunction(torch.autograd.Function):
@@ -36,10 +45,10 @@ class RMSNormFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, weight, eps):
         # TODO: Replace with fused implementation
-        output = rmsnorm_forward(x, weight, eps)
+        output, rsqrt = rmsnorm_forward(x, weight, eps)
 
         # TODO: Save tensors for backward (make it memory-efficient)
-        ctx.save_for_backward()  # TODO: Fill this
+        ctx.save_for_backward(x, weight, rsqrt)  # TODO: Fill this
 
         return output
 
@@ -47,7 +56,10 @@ class RMSNormFunction(torch.autograd.Function):
     def backward(ctx, grad_output):
         # TODO: Implement fused backward pass
         # TODO: Make it work with memory-efficient forward
-        raise NotImplementedError("TODO: Implement backward pass")
+        x, weight, rstd = ctx.saved_tensors
+
+        dx, dw = rmsnorm_backward(grad_output, x, weight, rstd)
+        return dx, dw, None
 
 
 class RMSNorm(nn.Module):
