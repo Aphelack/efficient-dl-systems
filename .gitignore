@@ -136,3 +136,9 @@ dmypy.json
 week02_fast_pipelines/homework/task3/clothing-dataset/*
 week03_data_parallel/homework/cifar/
 **/*.pickle
+
+week05_fsdp/homework/c4_test
+week05_fsdp/homework/tokenizer
+week05_fsdp/homework/traces/
+week05_fsdp/homework/fsdp2_trace.json
+week05_fsdp/homework/.vscode/

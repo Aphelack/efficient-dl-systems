@@ -4,6 +4,7 @@ from collections import deque
 from collections.abc import Callable
 from typing import Any
 from typing import Literal
+import pathlib
 
 import pytest
 import torch
@@ -112,16 +113,20 @@ def _test_fsdp(
     reduce_dtype: Literal["bfloat16", "float32"] | None,
 ) -> None:
     fsdp_losses, fsdp_grad_norms = train(
-        num_steps_to_profile=None,
+        num_steps_to_profile=3,
         param_dtype=param_dtype,
         reduce_dtype=reduce_dtype,
         fsdp="fsdp2",
+        snapshots_dir=pathlib.Path("snapshots_fsdp2"),
+        traces_dir=pathlib.Path("traces_fsdp2")
     )
     effdl_losses, effdl_grad_norms = train(
-        num_steps_to_profile=None,
+        num_steps_to_profile=3,
         param_dtype=param_dtype,
         reduce_dtype=reduce_dtype,
         fsdp="effdl",
+        snapshots_dir=pathlib.Path("snapshots_effdl"),
+        traces_dir=pathlib.Path("traces_effdl")
     )
     for fsdp_loss, effdl_loss in zip(fsdp_losses, effdl_losses, strict=True):
         assert fsdp_loss == effdl_loss
