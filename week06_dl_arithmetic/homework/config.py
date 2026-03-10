@@ -4,11 +4,11 @@ from dataclasses import dataclass
 @dataclass
 class TransformerConfig:
     vocab_size: int = 32000
-    hidden_dim: int = 2048
-    num_heads: int = 32
-    num_layers: int = 24
-    intermediate_dim: int = 5120
-    max_seq_len: int = 4096
+    hidden_dim: int = 1024
+    num_heads: int = 16
+    num_layers: int = 12
+    intermediate_dim: int = 4096
+    max_seq_len: int = 2048
     dropout: float = 0.0
     rope_theta: float = 10000.0
     rms_norm_eps: float = 1e-6

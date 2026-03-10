@@ -27,17 +27,20 @@ from config import TransformerConfig
 from efficient_model import EfficientTransformer
 from efficient_optimizer.ademamix import AdEMAMix
 
+from torch.distributed.fsdp import fully_shard, FSDPModule  # NEW
+from torch.distributed.fsdp import MixedPrecisionPolicy  
+from tqdm import tqdm
 
 class SyntheticDataset(Dataset):
     """
     Synthetic dataset generating random token sequences.
     Used for benchmarking.
     """
-
+    
     def __init__(
-        self,
-        num_samples: int,
-        seq_len: int,
+        self, 
+        num_samples: int, 
+        seq_len: int, 
         vocab_size: int,
         seed: int = 42,
     ):
@@ -45,10 +48,10 @@ class SyntheticDataset(Dataset):
         self.seq_len = seq_len
         self.vocab_size = vocab_size
         self.seed = seed
-
+    
     def __len__(self):
         return self.num_samples
-
+    
     def __getitem__(self, idx):
         generator = torch.Generator().manual_seed(self.seed + idx)
         tokens = torch.randint(
@@ -98,16 +101,30 @@ def train(args):
     if torch.cuda.is_available():
         torch.cuda.manual_seed(args.seed)
 
-    config = TransformerConfig()
+    config = TransformerConfig(
+        vocab_size=32000,
+        hidden_dim=1024,
+        num_heads=16,
+        num_layers=12,
+        intermediate_dim=4096,
+        max_seq_len=2048,
+        dropout=0.0,
+        rope_theta=10000.0,
+        rms_norm_eps=1e-6,
+    )
     if is_master:
         print(f"Model config: {config}")
 
     model = EfficientTransformer(config).to(device)
 
-    # TODO: Replace DDP with FSDP
     if world_size > 1:
-        model = DDP(model, device_ids=[local_rank])
+        mp_policy = MixedPrecisionPolicy(
+        param_dtype=torch.bfloat16 if args.use_amp else torch.float32,
+        reduce_dtype=torch.float32)
 
+        fully_shard(model, mp_policy=mp_policy)
+
+    raw_model = model
     num_params = sum(p.numel() for p in model.parameters())
     if is_master:
         print(f"Model parameters: {num_params:,}")
@@ -165,7 +182,7 @@ def train(args):
         epoch_loss = 0.0
         epoch_steps = 0
 
-        for batch_idx, input_ids in enumerate(dataloader):
+        for batch_idx, input_ids in tqdm(enumerate(dataloader)):
             input_ids = input_ids.to(device)
             labels = input_ids.clone()
 
@@ -198,7 +215,7 @@ def train(args):
                 elapsed = time.time() - log_interval_start
                 tokens_per_sec = log_interval_tokens / elapsed
                 avg_loss = epoch_loss / epoch_steps
-
+                
                 print(
                     f"Step {global_step:5d} | "
                     f"Epoch {epoch+1}/{args.num_epochs} | "
@@ -209,15 +226,15 @@ def train(args):
 
                 log_interval_tokens = 0
                 log_interval_start = time.time()
-
+        
         if is_master:
             avg_epoch_loss = epoch_loss / epoch_steps
             print(f"Epoch {epoch+1} complete | Avg Loss: {avg_epoch_loss:.4f}")
-
+    
     total_time = time.time() - start_time
 
     cleanup_distributed()
-
+    
     return model
 
 
@@ -250,7 +267,7 @@ def main():
                         help='DataLoader workers')
     parser.add_argument('--log-interval', type=int, default=10,
                         help='Log every N steps')
-
+    
     args = parser.parse_args()
     train(args)
 
