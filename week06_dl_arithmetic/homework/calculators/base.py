@@ -25,10 +25,10 @@ H100_SXM = GPUSpec(
 
 # Put your GPU spec here
 GPUS_SPEC = GPUSpec(
-    name="...", 
-    memory_bandwidth_gbps=...,
-    flops_bf16=...,
-    interconnect_bandwidth_gbps=...,
+    name="RTX A4000", 
+    memory_bandwidth_gbps=448,
+    flops_bf16=76.88,
+    interconnect_bandwidth_gbps=63,
 )
 
 
