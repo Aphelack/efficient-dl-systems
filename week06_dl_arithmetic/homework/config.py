@@ -8,7 +8,7 @@ class TransformerConfig:
     num_heads: int = 16
     num_layers: int = 12
     intermediate_dim: int = 4096
-    max_seq_len: int = 2048
+    max_seq_len: int = 1024
     dropout: float = 0.0
     rope_theta: float = 10000.0
     rms_norm_eps: float = 1e-6
