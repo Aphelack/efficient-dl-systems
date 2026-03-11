@@ -308,18 +308,13 @@ class FSDPModule:
         for fsdp_param in self.fsdp_params:
             all_gather_output = outputs.pop(0)
             
-            # 1. Resize the permanent storage to full size (Autograd tracks this specific storage)
-            fsdp_param.alloc_unsharded_param()
-            
             with torch.no_grad():
-                # 2. MUST use .data.copy_()
-                # .data bypasses the inplace version tracker (fixes the version bump crash)
-                # .copy_() moves the data into the permanent storage (fixes the size 0 crash)
-                fsdp_param.unsharded_param.data.copy_(all_gather_output)
+                # Directly reuse the all-gather output buffer as the parameter's
+                # storage, avoiding a separate alloc + copy (matches FSDP2 behavior).
+                fsdp_param.unsharded_param.data = all_gather_output
                 
             fsdp_param.to_unsharded()
             
-            # 3. Aggressively delete the DTensor output to drop the 2x peak instantly
             del all_gather_output
 
         self._sharded_state = ShardedState.UNSHARDED
