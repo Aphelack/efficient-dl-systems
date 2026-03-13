@@ -17,11 +17,16 @@ __This branch corresponds to the 2026 iteration of the course. If you want to se
   - Lecture: Tensor, pipeline, sequence parallelism. Gradient checkpointing, offloading.
   - Seminar: Gradient checkpointing and tensor parallelism in practice.
 - [__Week 5:__](./week05_fsdp) __Sharded data-parallel training, distributed training optimizations__
-  - Lecture: FSDP training and its optimizations
-  - Seminar: In-depth overview of PyTorch Device Mesh, DTensor, FSDP2, and Distributed Checkpoint
-- __Week 6:__ Deep learning performance from first principles
-- __Week 7:__ Basics of web service deployment
-- __Week 8:__ Systems optimizations for inference
+  - Lecture: FSDP training and its optimizations.
+  - Seminar: In-depth overview of PyTorch Device Mesh, DTensor, FSDP2, and Distributed Checkpoint.
+- [__Week 6:__](./week06_dl_arithmetic) __Deep learning performance from first principles.__
+  - Lecture: Arithmetic of Deep Learning
+  - Seminar: Kernel fusion, torch.compile, GPU memory hierarchy and Liger kernels
+- [__Week 7:__](./week07_application_deployment) __Basics of web service deployment.__
+  - Lecture/Seminar: Web service deployment and production-ready systems basics.
+- [__Week 8:__](./week08_inference_software) __Systems optimizations for inference__
+  - Lecture: Inference speed metrics. KV caching, batch inference, continuous batching. FlashAttention with its modifications and PagedAttention. Overview of popular LLM serving frameworks.
+  - Seminar: KV cache utilization, continuous batching for high-throughput serving, and performance measurements of the prefill and decode stages.
 - __Week 9:__ Algorithmic optimizations for inference
 - __Week 10:__ Guest lecture
 

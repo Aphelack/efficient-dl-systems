@@ -131,6 +131,7 @@ dmypy.json
 .idea
 .DS_Store
 
+
 **/__MACOSX/*
 
 week02_fast_pipelines/homework/task3/clothing-dataset/*
@@ -143,4 +144,7 @@ week05_fsdp/homework/tokenizer
 week05_fsdp/homework/traces/
 week05_fsdp/homework/fsdp2_trace.json
 week05_fsdp/homework/.vscode/
+
+
+.vscode/
 

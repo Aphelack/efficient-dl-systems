@@ -307,6 +307,7 @@ class FSDPModule:
     def wait_for_unshard(self):
         # TODO(task2): wait for the end of the all-gather launched by `unshard`
         # self._all_gather_result.all_gather_event.synchronize()
+        # self._all_gather_result.all_gather_event.synchronize()
         # TODO(task1): for each parameter:
         #   - allocate its unsharded paramter
         #   - copy the all-gather output into it
