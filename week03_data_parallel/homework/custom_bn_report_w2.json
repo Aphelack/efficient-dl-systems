@@ -1,0 +1,9 @@
+{
+    "benchmark_name": "custom_syncbn",
+    "num_gpus": 2,
+    "batch_size_per_gpu": 64,
+    "total_batch_size": 256,
+    "avg_batch_time_seconds": 0.0885358932682059,
+    "peak_memory_mb_per_gpu": 63.837890625,
+    "final_accuracy_percent": 33.4
+}

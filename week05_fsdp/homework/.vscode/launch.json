@@ -1,0 +1,30 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "train",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/home/korenikil/efficient-dl-systems/week05_fsdp/homework/.venv/bin/torchrun",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "3,4,5,6",
+            },
+            "args": [
+                "--standalone",
+                "--nproc-per-node", "4",
+                "--local-ranks-filter", "0",
+                "train.py",
+                "--model", "1b",
+                "--seq-len", "512",
+                "--num-steps", "5",
+                "--fsdp", "effdl",
+                //"--fsdp", "fsdp2",
+                "--snapshots-dir", "memory-snapshots/effdl",
+                //"--snapshots-dir", "memory-snapshots/fsdp2",
+                "--traces-dir",  "traces_effdl_overlap_backward_512"
+            ]
+        },
+    ]
+}

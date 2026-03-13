@@ -1,0 +1,9 @@
+{
+    "benchmark_name": "native_syncbn_ddp",
+    "num_gpus": 2,
+    "batch_size_per_gpu": 64,
+    "total_batch_size": 256,
+    "avg_batch_time_seconds": 0.052098026533018454,
+    "peak_memory_mb_per_gpu": 66.1806640625,
+    "final_accuracy_percent": 38.82
+}
