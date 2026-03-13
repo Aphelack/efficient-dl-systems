@@ -17,12 +17,13 @@
                 "--local-ranks-filter", "0",
                 "train.py",
                 "--model", "1b",
-                "--seq-len", "128",
-                "--num-steps", "3",
+                "--seq-len", "512",
+                "--num-steps", "5",
                 "--fsdp", "effdl",
                 //"--fsdp", "fsdp2",
-                "--snapshots-dir", "memory-snapshots/effdl"
-                //"--snapshots-dir", "memory-snapshots/fsdp2"
+                "--snapshots-dir", "memory-snapshots/effdl",
+                //"--snapshots-dir", "memory-snapshots/fsdp2",
+                "--traces-dir",  "traces_effdl_overlap_backward_512"
             ]
         },
     ]

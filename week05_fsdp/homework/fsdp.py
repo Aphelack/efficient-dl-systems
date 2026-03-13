@@ -383,7 +383,16 @@ class FSDPModule:
     def _backward_prefetch(self) -> None:
         # TODO(task3): using `self._post_forward_indices` and `self.comm_ctx.post_forward_order`
         # find the right FSDPModule to prefetch
-        self._prefetch_unshard(target_fsdp_module)
+        if not self._post_forward_indices:
+            return
+            
+        current_idx = self._post_forward_indices.pop()
+        
+        # In backward, modules are executed in reverse order.
+        # The next module to run in backward is the one that ran right BEFORE it in forward.
+        if current_idx > 0:
+            target_fsdp_module = self.comm_ctx.post_forward_order[current_idx - 1]
+            self._prefetch_unshard(target_fsdp_module)
 
     @staticmethod
     def _prefetch_unshard(target_fsdp_module: "FSDPModule") -> None:
@@ -440,7 +449,7 @@ def pre_backward(module: FSDPModule, grad: torch.Tensor):
         module._training_state = TrainingState.PRE_BACKWARD
         module.unshard()  # no-op if prefetched
         module.wait_for_unshard()
-        # module._backward_prefetch()
+        module._backward_prefetch()
         # TODO(task3): uncomment the next line
     return grad
 
@@ -448,67 +457,79 @@ def pre_backward(module: FSDPModule, grad: torch.Tensor):
 def post_backward(module: FSDPModule):
     logger.debug("%s", module.with_fqn("FSDP::post_backward"))
     module._training_state = TrainingState.POST_BACKWARD
-    # TODO(task1): reshard the module
-    # TODO(bonus2): reshard the module only if module.reshard_after_backward is True
-    # TODO(bonus3): reduce the grads only if module.reduce_grads is True
+    
     with record_function(module.with_fqn("FSDP::post_backward_reshard")):
-        # TODO(task3): allocate the inputs for the reduce-scatter in the reduce-scatter stream
-        # NOTE:
-        #   - you should wait for the current stream to finish its backward pass
-        #   - you should copy the grads into some memory allocated in the reduce-scatter stream
-        #     so it doesn't interfere with the next backward
-        # TODO(task1):
-        #   - cast the parameter gradients to reduce dtype
-        #   - delete the unsharded parameter grad
+        # TODO(task1): reshard the module
         module.reshard()
         
     with record_function(module.with_fqn("FSDP::post_backward_reduce")):
+        current_stream = torch.cuda.current_stream()
+        
+        # NOTE: wait for the current stream to finish its backward pass
+        module.comm_ctx.reduce_scatter_stream.wait_stream(current_stream)
+        
         with torch.no_grad():
+            grad_copies = []
+            
+            # TODO(task3): allocate the inputs for the reduce-scatter in the reduce-scatter stream
+            # copy the grads into some memory allocated in the reduce-scatter stream
+            with torch.cuda.stream(module.comm_ctx.reduce_scatter_stream):
+                for fsdp_param in module.fsdp_params:
+                    if fsdp_param.unsharded_param.grad is not None:
+                        # clone() allocates new memory tied to the reduce_scatter_stream and copies the data
+                        grad_copy = fsdp_param.unsharded_param.grad.clone()
+                        grad_copies.append((fsdp_param, grad_copy))
+                    else:
+                        grad_copies.append((fsdp_param, None))
+
+            # TODO(task3): now block current stream until reduce-scatter stream finishes the copy
+            # This is the crucial fix! It stops the default stream from starting the next backward pass
+            # and destroying the parameter memory before the comm stream finishes copying it.
+            copy_event = torch.cuda.Event()
+            copy_event.record(module.comm_ctx.reduce_scatter_stream)
+            current_stream.wait_event(copy_event)
+            
+            # Now that the copy is safely finished, we can clear the autograd graph's reference
             for fsdp_param in module.fsdp_params:
-                if fsdp_param.unsharded_param.grad is None:
-                    continue
+                fsdp_param.unsharded_param.grad = None
+                
+            # Now we do the heavy communication math safely on the background stream
+            with torch.cuda.stream(module.comm_ctx.reduce_scatter_stream):
+                for fsdp_param, grad_copy in grad_copies:
+                    if grad_copy is None:
+                        continue
+                        
+                    if fsdp_param.reduce_dtype is not None:
+                        grad_copy = grad_copy.to(fsdp_param.reduce_dtype)
+                        
+                    # TODO(task1): reduce-scatter the gradients
+                    partial_grad = DTensor.from_local(
+                        grad_copy,
+                        device_mesh=fsdp_param.mesh,
+                        placements=[Partial('avg')],
+                        shape=fsdp_param.orig_size,
+                        stride=grad_copy.stride(),
+                    )
+                    
+                    sharded_grad_dt = DTensor.redistribute(partial_grad, placements=[Shard(0)])
+                    
+                    del partial_grad
+                    del grad_copy
+                    
+                    if sharded_grad_dt.dtype != fsdp_param.orig_dtype:
+                        sharded_grad_dt = sharded_grad_dt.to(fsdp_param.orig_dtype)
 
-                # Grab the full-size gradient
-                grad = fsdp_param.unsharded_param.grad
-                
-                # 1. Sever the autograd link immediately to free the parameter grad
-                # This explicitly satisfies: "Make sure you free unsharded grads after each gradient reduction"
-                fsdp_param.unsharded_param.grad = None 
-                
-                if fsdp_param.reduce_dtype is not None:
-                    grad = grad.to(fsdp_param.reduce_dtype)
+                    if fsdp_param.sharded_param.grad is not None:
+                        fsdp_param.sharded_param.grad.add_(sharded_grad_dt)
+                    else:
+                        fsdp_param.sharded_param.grad = sharded_grad_dt
 
-                # TODO(task3): now block current stream until reduce-scatter stream finishes the copy
-                # TODO(task1): reduce-scatter the gradients and assign the reduced grad shards to `sharded_param.grad`s
-                # (casting them to `orig_dtype`)
-                
-                partial_grad = DTensor.from_local(
-                    grad,
-                    device_mesh=fsdp_param.mesh,
-                    placements=[Partial('avg')],
-                    shape=fsdp_param.orig_size,
-                    stride=grad.stride(),
-                )
-                
-                sharded_grad_dt = DTensor.redistribute(partial_grad, placements=[Shard(0)])
-                
-                # 2. Aggressive deletion of the full-sized gradient memory
-                del partial_grad
-                del grad
-                
-                # 3. Cast the sharded gradient directly back to original precision
-                if sharded_grad_dt.dtype != fsdp_param.orig_dtype:
-                    sharded_grad_dt = sharded_grad_dt.to(fsdp_param.orig_dtype)
+                # TODO(task3): create an event which marks the end of the reduce-scatter
+                # and save it to `_post_reduce_event` to wait for it when the whole backward finishes
+                reduce_event = torch.cuda.Event()
+                reduce_event.record(module.comm_ctx.reduce_scatter_stream)
+                module._post_reduce_event = reduce_event
 
-                if fsdp_param.sharded_param.grad is not None:
-                    fsdp_param.sharded_param.grad.add_(sharded_grad_dt)
-                else:
-                    fsdp_param.sharded_param.grad = sharded_grad_dt
-
-
-        # TODO(task3): create an event which marks the end of the reduce-scatter
-        # and save it to `_post_reduce_event` to wait for it
-        # when the whole backward finishes (in the final callback)
 
 
 def register_pre_backward_hook(hook: Callable, output: Any) -> Any:
