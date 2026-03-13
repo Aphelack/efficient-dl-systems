@@ -320,19 +320,14 @@ class FSDPModule:
         
         for fsdp_param in self.fsdp_params:
             all_gather_output = outputs.pop(0)
-            
-            # 1. Resize the permanent storage to full size (Autograd tracks this specific storage)
+
             fsdp_param.alloc_unsharded_param()
             
             with torch.no_grad():
-                # 2. MUST use .data.copy_()
-                # .data bypasses the inplace version tracker (fixes the version bump crash)
-                # .copy_() moves the data into the permanent storage (fixes the size 0 crash)
                 fsdp_param.unsharded_param.data.copy_(all_gather_output)
                 
             fsdp_param.to_unsharded()
             
-            # 3. Aggressively delete the DTensor output to drop the 2x peak instantly
             del all_gather_output
 
         self._sharded_state = ShardedState.UNSHARDED
@@ -352,8 +347,6 @@ class FSDPModule:
             return
             
         for fsdp_param in self.fsdp_params:
-            # 4. Resize the permanent storage to 0. 
-            # Autograd's saved view now safely points to 0 bytes until pre_backward resizes it again.
             fsdp_param.free_unsharded_param()
             fsdp_param.to_sharded()
             
@@ -387,9 +380,7 @@ class FSDPModule:
             return
             
         current_idx = self._post_forward_indices.pop()
-        
-        # In backward, modules are executed in reverse order.
-        # The next module to run in backward is the one that ran right BEFORE it in forward.
+
         if current_idx > 0:
             target_fsdp_module = self.comm_ctx.post_forward_order[current_idx - 1]
             self._prefetch_unshard(target_fsdp_module)
@@ -476,24 +467,20 @@ def post_backward(module: FSDPModule):
             with torch.cuda.stream(module.comm_ctx.reduce_scatter_stream):
                 for fsdp_param in module.fsdp_params:
                     if fsdp_param.unsharded_param.grad is not None:
-                        # clone() allocates new memory tied to the reduce_scatter_stream and copies the data
                         grad_copy = fsdp_param.unsharded_param.grad.clone()
                         grad_copies.append((fsdp_param, grad_copy))
                     else:
                         grad_copies.append((fsdp_param, None))
 
             # TODO(task3): now block current stream until reduce-scatter stream finishes the copy
-            # This is the crucial fix! It stops the default stream from starting the next backward pass
-            # and destroying the parameter memory before the comm stream finishes copying it.
+
             copy_event = torch.cuda.Event()
             copy_event.record(module.comm_ctx.reduce_scatter_stream)
             current_stream.wait_event(copy_event)
             
-            # Now that the copy is safely finished, we can clear the autograd graph's reference
             for fsdp_param in module.fsdp_params:
                 fsdp_param.unsharded_param.grad = None
-                
-            # Now we do the heavy communication math safely on the background stream
+
             with torch.cuda.stream(module.comm_ctx.reduce_scatter_stream):
                 for fsdp_param, grad_copy in grad_copies:
                     if grad_copy is None:
