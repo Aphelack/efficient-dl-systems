@@ -277,29 +277,31 @@ class FSDPModule:
         with record_function(self.with_fqn("FSDP::all_gather")):
             # TODO(task1): gather the parameters shards (cast to `param_dtype`) for each parameter
             param_all_gather_outputs = []
-            # with torch.cuda.stream(self.comm_ctx.all_gather_stream):
-            with torch.no_grad():
-                for fsdp_param in self.fsdp_params:
-                    # OPTIMIZATION: Cast the *sharded* tensor BEFORE gathering. 
-                    # This saves communication bandwidth and avoids allocating a full-sized casted tensor later.
-                    sharded_tensor = fsdp_param.sharded_param
-                    if fsdp_param.param_dtype is not None:
-                        sharded_tensor = sharded_tensor.to(fsdp_param.param_dtype)
+            with torch.cuda.stream(self.comm_ctx.all_gather_stream):
+                with torch.no_grad():
+                    for fsdp_param in self.fsdp_params:
+                        sharded_tensor = fsdp_param.sharded_param
+                        if fsdp_param.param_dtype is not None:
+                            sharded_tensor = sharded_tensor.to(fsdp_param.param_dtype)
+                            
+                        unsharded_dtensor = DTensor.redistribute(sharded_tensor, placements=[Replicate()])
+                        local = unsharded_dtensor.to_local()
+                        param_all_gather_outputs.append(local)
                         
-                    unsharded_dtensor = DTensor.redistribute(sharded_tensor, placements=[Replicate()])
-                    local = unsharded_dtensor.to_local()
-                    param_all_gather_outputs.append(local)
+                        # Clean up intermediate DTensor references
+                        del sharded_tensor
+                        del unsharded_dtensor
                     
-                    # Clean up intermediate DTensor references
-                    del sharded_tensor
-                    del unsharded_dtensor
-                    
-            self._all_gather_result = AllGatherResult(
-                param_all_gather_outputs=param_all_gather_outputs
-            )
+            
+            all_gather_event = torch.cuda.Event()
+            all_gather_event.record(self.comm_ctx.all_gather_stream)
             # TODO(task2): create an event which marks the end of all-gather
             # and save it in `AllGatherResult`
             # self._all_gather_result.all_gather_event = torch.cuda.Event()
+            self._all_gather_result = AllGatherResult(
+                param_all_gather_outputs=param_all_gather_outputs,
+                all_gather_event=all_gather_event
+            )
 
 
     def wait_for_unshard(self):
@@ -312,6 +314,9 @@ class FSDPModule:
         # then free the `all_gather_result`
         # NOTE: copy to the `.data` attribute
         outputs = self._all_gather_result.param_all_gather_outputs
+
+        if self._all_gather_result.all_gather_event is not None:
+            self._all_gather_result.all_gather_event.wait()
         
         for fsdp_param in self.fsdp_params:
             all_gather_output = outputs.pop(0)
@@ -337,9 +342,9 @@ class FSDPModule:
         copy_event.record()
         self.comm_ctx.all_gather_stream.wait_event(copy_event)
         # TODO(task2): block all-gather stream until copy is complete,
-        # copy_event = torch.cuda.Event()
-        # copy_event.record()
-        # self.comm_ctx.all_gather_stream.wait_event(copy_event)
+        copy_event = torch.cuda.Event()
+        copy_event.record()
+        self.comm_ctx.all_gather_stream.wait_event(copy_event)
         # so it doesn't interfere with the next unshard
 
     def reshard(self):
@@ -354,26 +359,6 @@ class FSDPModule:
             
         self._sharded_state = ShardedState.SHARDED
 
-
-
-
-
-
-
-    # def reshard(self):
-    #     # TODO(bonus1): do nothing if called during forward adn self._reshard_after_forward is True
-    #     # TODO(task1): for each parameter:
-    #     #   - free the unsharded parameter
-    #     #   - assign the sharded parameter into the module (call `.to_sharded()`)
-    #     for fsdp_param in self.fsdp_params:
-    #         # OPTIMIZATION: Overwrite .data with an empty tensor to break the autograd reference link
-    #         with torch.no_grad():
-    #             fsdp_param.unsharded_param.data = torch.empty(0, dtype=fsdp_param.unsharded_param.dtype, device=fsdp_param.unsharded_param.device)
-    #         fsdp_param.free_unsharded_param()
-    #         fsdp_param.to_sharded()
-            
-    #     self._sharded_state = ShardedState.SHARDED
-    #     gc.collect()
 
     def record_post_forward(self) -> None:
         post_forward_index = len(self.comm_ctx.post_forward_order)
