@@ -66,14 +66,34 @@ class InferenceEngine:
             return BatchResult(request_ids=[], new_tokens=[], finished=[])
 
         # TODO: Tokenize prompts and create batch (use self.tokenizer with padding=True)
+        toeknized_batch = self.tokenizer([r.prompt for r in requests], padding=True, return_tensors='pt')
         # TODO: Forward pass through model
+        outputs = self.model(**toeknized_batch)
         # TODO: For each request:
         #   - Get real prompt length from attention_mask
         #   - Generate next token (greedy: argmax from logits[i, real_prompt_len - 1, :])
         #   - Get past_key_values for the request with self._get_past_for_request
         #   - Save state: current_len, input_ids (real part only), attention_mask, past_key_values
         #   - Set generated_tokens, num_generated, is_finished
-        raise NotImplementedError("TODO: Implement prefill method")
+        request_ids = [0]*len(requests)
+        new_tokens = [[]]*len(requests)
+        finished = [True]*len(requests)
+
+        for i, request in enumerate(requests):
+            request_ids[i] = request.request_id
+            real_prompt_len = request.attention_mask.shape[0]
+            next_token = torch.argmax(outputs.logits[i, real_prompt_len - 1, :])
+            new_tokens[i].append(next_token)
+            request.is_finished = (next_token == self.tokenizer.eos_token)
+            finished[i] = request.is_finished
+            request.generated_tokens = [next_token]
+            request.num_generated = 1
+            request.input_ids = toeknized_batch['input_ids'][i, :real_prompt_len].unsqueeze(0)
+            request.attention_mask = toeknized_batch['attention_mask'][i, :real_prompt_len].unsqueeze(0)
+            request.past_key_values = self._get_past_for_request(outputs.past_key_values[i], request.request_id, real_prompt_len)
+            request.current_len = real_prompt_len
+        return BatchResult(request_ids=request_ids, new_tokens=new_tokens, finished=finished)
+        
 
     @torch.no_grad()
     def decode(self, requests: List[Request]) -> BatchResult:
