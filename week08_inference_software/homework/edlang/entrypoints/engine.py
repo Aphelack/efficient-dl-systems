@@ -66,7 +66,7 @@ class InferenceEngine:
             return BatchResult(request_ids=[], new_tokens=[], finished=[])
 
         # TODO: Tokenize prompts and create batch (use self.tokenizer with padding=True)
-        toeknized_batch = self.tokenizer([r.prompt for r in requests], padding=True, return_tensors='pt')
+        toeknized_batch = self.tokenizer([r.prompt for r in requests], padding=True, return_tensors='pt').to(self.model.device)
         # TODO: Forward pass through model
         outputs = self.model(**toeknized_batch)
         # TODO: For each request:
@@ -81,7 +81,7 @@ class InferenceEngine:
 
         for i, request in enumerate(requests):
             request_ids[i] = request.request_id
-            real_prompt_len = request.attention_mask.shape[0]
+            real_prompt_len = toeknized_batch['attention_mask'].shape[-1]
             next_token = torch.argmax(outputs.logits[i, real_prompt_len - 1, :])
             new_tokens[i].append(next_token)
             request.is_finished = (next_token == self.tokenizer.eos_token)
@@ -90,7 +90,7 @@ class InferenceEngine:
             request.num_generated = 1
             request.input_ids = toeknized_batch['input_ids'][i, :real_prompt_len].unsqueeze(0)
             request.attention_mask = toeknized_batch['attention_mask'][i, :real_prompt_len].unsqueeze(0)
-            request.past_key_values = self._get_past_for_request(outputs.past_key_values[i], request.request_id, real_prompt_len)
+            request.past_key_values = self._get_past_for_request(outputs.past_key_values, request.request_id, real_prompt_len)
             request.current_len = real_prompt_len
         return BatchResult(request_ids=request_ids, new_tokens=new_tokens, finished=finished)
         
@@ -112,6 +112,7 @@ class InferenceEngine:
         Note: Use RIGHT padding for KV cache. Handle finished requests separately.
         """
         # TODO: Filter active requests (if none, return empty results for all)
+        active_requests = [r for r in requests if r.is_finished]
         # TODO: Prepare batched KV cache using _prepare_past_key_values_batch
         # TODO: Create batch from last generated tokens [batch_size, 1]
         # TODO: Build attention_mask for each active request
@@ -150,6 +151,7 @@ class InferenceEngine:
         """
         if not requests:
             return None
+        
 
         # TODO: Create new DynamicCache for batch
         raise NotImplementedError("TODO: Implement _prepare_past_key_values_batch method")
