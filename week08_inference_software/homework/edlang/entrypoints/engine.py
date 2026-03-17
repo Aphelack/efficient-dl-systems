@@ -112,14 +112,35 @@ class InferenceEngine:
         Note: Use RIGHT padding for KV cache. Handle finished requests separately.
         """
         # TODO: Filter active requests (if none, return empty results for all)
-        active_requests = [r for r in requests if r.is_finished]
+        active_requests = [r for r in requests if not r.is_finished]
         # TODO: Prepare batched KV cache using _prepare_past_key_values_batch
+        batch_past_key_values = self._prepare_past_key_values_batch(active_requests)
         # TODO: Create batch from last generated tokens [batch_size, 1]
+        token_batch = torch.tensor([r.generated_tokens[-1] for r in active_requests], device=self.model.device).unsqueeze(1)
         # TODO: Build attention_mask for each active request
+        attention_masks = []
+        for r in active_requests:
+            real_len = r.current_len + 1
+            attention_mask = torch.ones((1, real_len), device=self.model.device)
+            attention_masks.append(attention_mask)
+        attention_mask_batch = torch.cat(attention_masks, dim=0)
         # TODO: Forward pass with past_key_values
+        outputs = self.model(input_ids=token_batch, attention_mask=attention_mask_batch, past_key_values=batch_past_key_values, use_cache=True)
         # TODO: Get next tokens (greedy: argmax from last logit)
+        for i, request in enumerate(requests):
+            next_token = torch.argmax(outputs.logits[i, request.current_len + 1, :])
+            request.generated_tokens.append(next_token.item())
+            request.num_generated += 1
+            request.current_len += 1
+            request.past_key_values = self._get_past_for_request(outputs.past_key_values, request.request_id)
+            if next_token == self.tokenizer.eos_token or request.num_generated >= request.max_new_tokens:
+                request.is_finished = True
         # TODO: Update each request state (generated_tokens, num_generated, past_key_values, etc.)
-        raise NotImplementedError("TODO: Implement decode method")
+        return BatchResult(
+            request_ids=[r.request_id for r in requests],
+            new_tokens=[r.generated_tokens for r in requests],
+            finished=[r.is_finished for r in requests]
+        )
 
     def _get_past_for_request(
         self,
@@ -151,10 +172,31 @@ class InferenceEngine:
         """
         if not requests:
             return None
-        
+        max_seq_len = max(r.current_len for r in requests)
+        new_cache = DynamicCache()
+        for layer_idx in range(self.model.config.num_hidden_layers):
+            keys = []
+            values = []
+            for r in requests:
+                if r.past_key_values is not None:
+                    key = r.past_key_values.key_cache[layer_idx]
+                    value = r.past_key_values.value_cache[layer_idx]
+                    # Pad to max_seq_len with zeros on the right
+                    pad_len = max_seq_len - key.shape[2]
+                    if pad_len > 0:
+                        key = torch.nn.functional.pad(key, (0, 0, 0, pad_len))
+                        value = torch.nn.functional.pad(value, (0, 0, 0, pad_len))
+                    keys.append(key)
+                    values.append(value)
+                else:
+                    # If no cache, add zeros
+                    keys.append(torch.zeros((1, self.model.config.num_attention_heads, max_seq_len, self.model.config.head_size), device=self.model.device))
+                    values.append(torch.zeros((1, self.model.config.num_attention_heads, max_seq_len, self.model.config.head_size), device=self.model.device))
+            new_cache.key_cache[layer_idx] = torch.cat(keys, dim=0)
+            new_cache.value_cache[layer_idx] = torch.cat(values, dim=0)
 
         # TODO: Create new DynamicCache for batch
-        raise NotImplementedError("TODO: Implement _prepare_past_key_values_batch method")
+        return new_cache
 
     def _sample(self, tokens_dist: torch.Tensor, request: Request) -> int:
         # BOUNS PART - Implement sampling logic with sampling_params
