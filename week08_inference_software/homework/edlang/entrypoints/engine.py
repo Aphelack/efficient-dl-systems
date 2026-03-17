@@ -87,7 +87,7 @@ class InferenceEngine:
             attn = tokenized_batch["attention_mask"][i]  # (seq_len,)
             real_prompt_len = int(attn.sum().item())
 
-            next_token = self._sample(outputs.logits[i, real_prompt_len - 1, :], request)
+            next_token = self._sample(outputs.logits[i, real_prompt_len - 1, :], request) # argmax when no sampling params
 
             request.num_generated = 1
             request.is_finished = (
