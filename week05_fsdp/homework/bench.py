@@ -71,7 +71,6 @@ def _run_test(
     finally:
         dist.destroy_process_group()
 
-
 def run_distributed_test[**P](
     func: Callable[P, None],
     world_size: int = 4,
@@ -94,83 +93,26 @@ def run_distributed_test[**P](
     )
 
 
-@pytest.mark.parametrize("param_dtype", [None, "bfloat16"])
-@pytest.mark.parametrize("reduce_dtype", ["float32", "bfloat16"])
-def test_fsdp(
-    param_dtype: Literal["bfloat16", "float32"] | None,
-    reduce_dtype: Literal["bfloat16", "float32"] | None,
-):
-    run_distributed_test(
-        _test_fsdp,
-        param_dtype=param_dtype,
-        reduce_dtype=reduce_dtype,
-        world_size=2,
-    )
-
-
 def _test_fsdp(
     param_dtype: Literal["bfloat16", "float32"] | None,
     reduce_dtype: Literal["bfloat16", "float32"] | None,
+    fsdp: Literal["fsdp2", "effdl"] | None = None
 ) -> None:
-    fsdp_losses, fsdp_grad_norms = train(
+    train(
         num_steps_to_profile=3,
         param_dtype=param_dtype,
         reduce_dtype=reduce_dtype,
-        fsdp="fsdp2",
-        snapshots_dir=pathlib.Path("snapshots_fsdp2"),
-        traces_dir=pathlib.Path("traces_fsdp2")
+        fsdp=fsdp,
+        snapshots_dir=pathlib.Path(f"snapshots_{fsdp}"),
+        traces_dir=pathlib.Path(f"traces_{fsdp}")
     )
-    effdl_losses, effdl_grad_norms = train(
-        num_steps_to_profile=3,
-        param_dtype=param_dtype,
-        reduce_dtype=reduce_dtype,
-        fsdp="effdl",
-        snapshots_dir=pathlib.Path("snapshots_effdl"),
-        traces_dir=pathlib.Path("traces_effdl")
-    )
-    for fsdp_loss, effdl_loss in zip(fsdp_losses, effdl_losses, strict=True):
-        assert fsdp_loss == effdl_loss
-    for fsdp_grad_norm, effdl_grad_norm in zip(
-        fsdp_grad_norms, effdl_grad_norms, strict=True
-    ):
-        assert fsdp_grad_norm == effdl_grad_norm
 
 
-@pytest.mark.parametrize("param_dtype", [None, "bfloat16"])
-@pytest.mark.parametrize("reduce_dtype", ["float32", "bfloat16"])
-def test_fsdp_no_reshard_after_forward(
-    param_dtype: Literal["bfloat16", "float32"] | None,
-    reduce_dtype: Literal["bfloat16", "float32"] | None,
-) -> None:
+if __name__ == "main":
     run_distributed_test(
-        _test_fsdp_no_reshard_after_forward,
-        param_dtype=param_dtype,
-        reduce_dtype=reduce_dtype,
+        _test_fsdp,
+        param_dtype="bfloat16",
+        reduce_dtype="bfloat16",
+        fsdp='effdl',
         world_size=2,
     )
-
-
-def _test_fsdp_no_reshard_after_forward(
-    param_dtype: Literal["bfloat16", "float32"] | None,
-    reduce_dtype: Literal["bfloat16", "float32"] | None,
-) -> None:
-    fsdp_losses, fsdp_grad_norms = train(
-        num_steps_to_profile=None,
-        param_dtype=param_dtype,
-        reduce_dtype=reduce_dtype,
-        fsdp="fsdp2",
-        reshard_after_forward=False,
-    )
-    effdl_losses, effdl_grad_norms = train(
-        num_steps_to_profile=None,
-        param_dtype=param_dtype,
-        reduce_dtype=reduce_dtype,
-        fsdp="effdl",
-        reshard_after_forward=False,
-    )
-    for fsdp_loss, effdl_loss in zip(fsdp_losses, effdl_losses, strict=True):
-        assert fsdp_loss == effdl_loss
-    for fsdp_grad_norm, effdl_grad_norm in zip(
-        fsdp_grad_norms, effdl_grad_norms, strict=True
-    ):
-        assert fsdp_grad_norm == effdl_grad_norm

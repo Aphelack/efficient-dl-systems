@@ -61,7 +61,8 @@ def butterfly_allreduce(send, rank, size):
         future.wait()
 
 
-def ring_allreduce(send, rank, size):
+
+def ring_allreduce(send: torch.Tensor, rank, size):
     """
     Performs Ring All-Reduce over the process group. Modifies the input tensor in place.
     Args:
@@ -69,7 +70,37 @@ def ring_allreduce(send, rank, size):
         rank: Current process rank (in a range from 0 to size)
         size: Number of workers
     """
-    pass
+    assert len(send.shape) == 1 and send.shape[0] % size == 0
+
+    chunks = list(send.chunk(size))
+    add_acumulator = torch.empty_like(chunks[rank])
+    
+    next = (rank + 1) % size
+    prev = (rank - 1 + size) % size
+
+    for i in range(size - 1):
+        send_future  = dist.isend(chunks[(rank - i + size) % size], next)
+        recv_feature = dist.irecv(add_acumulator, prev)
+
+        recv_feature.wait()
+
+        chunks[(rank - i - 1 + size) % size] += add_acumulator
+        send_future.wait()
+
+    send_futures = []
+    recv_futures = []
+
+    for i in range(size):
+        if i == rank: continue
+        send_futures.append(dist.isend(chunks[next], i))
+        recv_futures.append(dist.irecv(chunks[(i + size + 1) % size], i))
+
+    for future in recv_futures:
+        future.wait()
+    for future in send_futures:
+        future.wait()
+    send /= size
+
 
 
 def run_butterfly_allreduce(rank, size):
